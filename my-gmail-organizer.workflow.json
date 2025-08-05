@@ -1,0 +1,742 @@
+{
+  "name": "Gmail Organizer",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -384,
+        -32
+      ],
+      "id": "d3f81d5d-ea83-4e1f-9c44-5d419a9fe263",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "filters": {
+          "labelIds": [
+            "INBOX"
+          ],
+          "readStatus": "both"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -208,
+        -32
+      ],
+      "id": "93a0c615-e376-431e-a79e-246744ef4f20",
+      "name": "Get Email",
+      "webhookId": "bead7a43-2a8e-4f28-ac57-576fd39e8e23",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an email summarizer and classifier. Given the following email, perform these tasks:\n\n1. Summarize the content of the email in 1–2 sentences.\n2. Identify the category:\n   - Client question\n   - Sales opportunity\n   - Spam or marketing\n   - Social media update\n   - Newsletter\n   - Service notification\n   - Billing update\n   - Banking or payment alert\n   - Tax or government-related\n   - Analytics/metrics alert\n   - Cold outreach or pitch\n   - Other / Unclassified\n3. Determine if the email seems urgent or time-sensitive.\n   **(Note: If you pick “Spam or marketing,” you must set `urgent` to `false`.)**\n4. Extract the sender's email address.\n5. Include the provided message ID for tracking.\n6. Preserve the original Gmail labels from the input: \nLabels: {{ JSON.stringify($json[\"labels\"]) }}\n\nReturn your response in valid JSON format using this structure:\n{\n  \"summary\": \"...\",\n  \"emailDate\": \"...\",\n  \"category\": \"...\",\n  \"sender\": \"...\",\n  \"urgent\": true | false,\n  \"id\": \"...\",\n  \"labels\": [  /* must exactly match the array shown above */  \n    {\n      \"id\": \"...\",\n      \"name\": \"...\"\n    }\n}\n\nEmail details:\nSubject: {{$json[\"Subject\"]}}\nSender: {{$json[\"From\"]}}\nID: {{$json[\"id\"]}}\nEmail snippet:\n{{$json[\"snippet\"]}}\nEmailDate: {{ $json.internalDate }}\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.1,
+      "position": [
+        -32,
+        -32
+      ],
+      "id": "50c49331-47d2-43bf-940c-b7f285187ff1",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -32,
+        176
+      ],
+      "id": "d48e2b18-cdce-411d-9d0a-2ba5d9447e7a",
+      "name": "OpenAI Chat Model"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Get Email').item.json.id }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        112,
+        176
+      ],
+      "id": "3c0e19e9-856f-4a8d-b7ce-5c7cd8105adf",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "content": "## Get Emails & All Existing Labels\n* Summarizes emails\n* Adds categories\n* Determine if email is urgent",
+        "height": 528,
+        "width": 896
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -448,
+        -160
+      ],
+      "typeVersion": 1,
+      "id": "f3d0247d-e218-47a6-9f51-f9a37c0183b8",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "jsCode": "const urgentItems = [];\nconst nonUrgentItems = [];\n\nfor (const item of items) {\n  const { sender, emailDate, summary, category, urgent } = item.json;\n\n  // 1) Parse the epoch (seconds vs ms—adjust if needed)\n  let ts = parseInt(emailDate, 10);\n  if (emailDate.length <= 10) {\n    // likely in seconds, convert\n    ts *= 1000;\n  }\n  const d = new Date(ts);\n\n  // 2) Format to \"M/D/YYYY h:mm AM/PM\"\n  const opts = {\n    month:   'numeric',\n    day:     'numeric',\n    year:    'numeric',\n    hour:    'numeric',\n    minute:  'numeric',\n    hour12:  true,\n    timeZone: 'America/New_York'\n  };\n  let formattedDate = d.toLocaleString('en-US', opts);\n  // Remove any comma (optional)\n  formattedDate = formattedDate.replace(',', '');\n\n  // 3) Build the email block with formattedDate\n  const emailBlock = `<div style=\"margin-bottom: 1em;\">\n    <strong>From:</strong> ${sender}<br/>\n    <strong>Date:</strong> ${formattedDate}<br/>\n    <strong>Summary:</strong> ${summary}<br/>\n    <strong>Category:</strong> ${category}<br/><br/>\n    <hr style=\"margin: 2em 0;\" /><br/>\n  </div>`;\n\n  if (urgent) {\n    urgentItems.push(emailBlock);\n  } else {\n    nonUrgentItems.push(emailBlock);\n  }\n}\n\nconst htmlContent = `\n  <div style=\"font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6;\">\n    <h2 style=\"color: #c0392b;\">🔥 Urgent Emails</h2>\n    ${urgentItems.length > 0 ? urgentItems.join('') : '<p>No urgent emails today.</p>'}\n    <h2 style=\"color: #2980b9;\">📬 Other Emails</h2>\n    ${nonUrgentItems.length > 0 ? nonUrgentItems.join('') : '<p>No other emails today.</p>'}\n  </div>\n`;\n\nreturn [\n  {\n    json: {\n      htmlSummary: htmlContent\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        -32
+      ],
+      "id": "d12c4985-bf0a-4612-aac6-415e7fa8f867",
+      "name": "Create Summary"
+    },
+    {
+      "parameters": {
+        "content": "## Send Summary Email",
+        "height": 288,
+        "width": 464,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        464,
+        -160
+      ],
+      "typeVersion": 1,
+      "id": "e26a624b-c66f-436c-b1ef-12241608459b",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "subject": "=Email summary for {{ $now.format('MM-dd-yyyy HH:mm') }}",
+        "message": "={{ $json.htmlSummary }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        784,
+        -32
+      ],
+      "id": "ea2fe7fa-a7c4-4711-8768-0a459bdcb7fd",
+      "name": "Send Message",
+      "webhookId": "5873abf0-752f-4aa3-8689-5e528510a100",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "content": "## Create New Labels (if needed)",
+        "height": 224,
+        "width": 464,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        464,
+        400
+      ],
+      "typeVersion": 1,
+      "id": "ccf77b4d-c899-4fdc-8ef1-a086cc255815",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "resource": "label",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -352,
+        224
+      ],
+      "id": "9e588f3a-d95c-4fac-ba19-0efeea87a326",
+      "name": "Get Existing Labels",
+      "webhookId": "c502d62f-d7d2-4355-8c64-b06cd7231ee7",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const { id, sender, category, labels, urgent } = item.json;\n\n  let action = \"file\";\n\n  if (urgent === true) {\n    action = \"none\";\n  } else if (category === \"Spam or marketing\" || category === \"Social media update\") {\n    action = \"delete\";\n  }\n\n  // Determine newLabel\n  let newLabel;\n\n  if (category === \"Banking or payment alert\") {\n    newLabel = \"Banking\";\n  } else {\n    // Extract domain from sender (e.g., no-reply@books.mydomain.com → mydomain)\n    let domainMatch = sender?.match(/@([\\w.-]+)/);\n    let domain = domainMatch ? domainMatch[1] : \"\";\n\n    // Split domain into parts and take the second-level domain\n    let domainParts = domain.split(\".\");\n    let mainDomain = \"\";\n\n    if (domainParts.length >= 2) {\n      mainDomain = domainParts[domainParts.length - 2];\n    }\n\n    // Capitalize first letter\n    newLabel = mainDomain.charAt(0).toUpperCase() + mainDomain.slice(1).toLowerCase();\n\n    // === Conditional overrides ===\n    newLabel = \n      newLabel == \"Buffermail\" ? \"Buffer\" :\n      newLabel == \"Relayfi\" ? \"Banking\" : \n      newLabel;\n  }\n\n  return {\n    json: {\n      id,\n      category,\n      labels,\n      action,\n      newLabel\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        224
+      ],
+      "id": "af3ced44-ccbe-4d52-902e-bd738ae1ac20",
+      "name": "Determine Action"
+    },
+    {
+      "parameters": {
+        "content": "## Determine the action to take\n* See if email should be deleted, filed, or left alone",
+        "height": 224,
+        "width": 464,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        464,
+        144
+      ],
+      "typeVersion": 1,
+      "id": "b7d592bd-bc7e-4e8c-ae11-a7268f327b99",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "resource": "label",
+        "operation": "create",
+        "name": "={{ $json.labelToCreate }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        784,
+        464
+      ],
+      "id": "5d30d50d-4e2c-4ad8-950f-93301c29277b",
+      "name": "Create a label",
+      "webhookId": "d23f32c3-6f29-4902-bbb5-80f4f10979af",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1️⃣ Grab both inputs by index\n//    – Input 0: Determine Action\n//    – Input 1: Get Existing Labels\n//const actionItems        = $input.all(0);\n//const existingLabelItems = $input.all(1);\n\nconst allItems = $input.all();\n\nconst actionItems = allItems.filter(i => i.sourceNode === 'Determine Action');\nconst existingLabelItems = allItems.filter(i => i.sourceNode === 'Get Updated Labels');\n\n// 2️⃣ Build a Set of existing label names (case-insensitive)\nconst existingLabels = new Set(\n  existingLabelItems\n    .map(item => item.json.name)\n    .filter(Boolean)\n    .map(name => name.toLowerCase())\n);\n\n// 3️⃣ Collect the new labels you need to create\nconst labelsToCreate = new Set();\n\nfor (const item of actionItems) {\n  const { action, newLabel } = item.json;\n  if (action === 'file' && newLabel) {\n    const nl = newLabel.toLowerCase();\n    if (!existingLabels.has(nl)) {\n      labelsToCreate.add(newLabel);  // preserve original casing\n    }\n  }\n}\n\n// 4️⃣ Return one item per unique labelToCreate\nreturn Array.from(labelsToCreate).map(label => ({\n  json: { labelToCreate: label }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        464
+      ],
+      "id": "8f4ddb7e-2290-49da-b403-6b7c26b0f3b5",
+      "name": "Get New Labels",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": "={{ $json.labelIdToAdd }} "
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        784,
+        960
+      ],
+      "id": "c6c85aca-94a4-4280-8dd9-004deaaa90e0",
+      "name": "Add label to message",
+      "webhookId": "9d201e4b-807d-40e4-9c4c-e535e06de20f",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "content": "## Add Label to Message \n* Only if it isn't already there",
+        "height": 224,
+        "width": 464
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        464,
+        880
+      ],
+      "typeVersion": 1,
+      "id": "d554d327-cf6b-49da-84f1-21fb5752a860",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "operation": "removeLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "INBOX"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        784,
+        1216
+      ],
+      "id": "d608c847-e151-4815-abab-c4126bfb55be",
+      "name": "Remove INBOX label from message",
+      "webhookId": "4d0b8095-c9d3-429c-85ff-42fb2daa989c",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.filter(item => {\n  const labelNames = item.json.labels.map(label => label.name.toUpperCase());\n  return labelNames.includes(\"INBOX\");\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        1216
+      ],
+      "id": "ab7ab0aa-a15a-46b0-8bd1-399ee98d8902",
+      "name": "List Emails With INBOX Label"
+    },
+    {
+      "parameters": {
+        "content": "## Remove INBOX Label From Emails\n* Only if found",
+        "height": 256,
+        "width": 464,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        464,
+        1120
+      ],
+      "typeVersion": 1,
+      "id": "59c77d74-0d8b-4207-8f8c-70fa2868619e",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{ $json.id }}"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        784,
+        1456
+      ],
+      "id": "5615e623-e42d-41ae-b4f0-52b8972b6b07",
+      "name": "Mark a message as read",
+      "webhookId": "7798001f-89d7-4a5f-a88a-d3798aec9abd",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## Mark Emails As READ ",
+        "height": 224,
+        "width": 464,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        464,
+        1392
+      ],
+      "typeVersion": 1,
+      "id": "0702b93d-ce1c-4043-89e6-f59c82f9bad4",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.filter(item => {\n  return item.json.action !== \"delete\";\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        1456
+      ],
+      "id": "6d63516c-501d-46db-9083-74b6b776226f",
+      "name": "Select Emails To Change To Read"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.filter(item => {\n  return item.json.action == \"delete\";\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        1712
+      ],
+      "id": "5d1ef7b1-b948-40f1-b380-1f80c713769b",
+      "name": "Select Emails For Deletion"
+    },
+    {
+      "parameters": {
+        "content": "## TRASH Incoming Spam or Marketing Emails",
+        "height": 256,
+        "width": 464,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        464,
+        1632
+      ],
+      "typeVersion": 1,
+      "id": "f08b8536-a00f-4f46-85dc-0897d934f147",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "TRASH"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        784,
+        1712
+      ],
+      "id": "e01d739d-f425-4984-a4d7-4dc9eb1120a9",
+      "name": "Add TRASH label to message",
+      "webhookId": "828385ca-4452-4d58-b9ce-d52e5b37de58",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "content": "## Update the Labels List \n",
+        "height": 224,
+        "width": 464,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        464,
+        640
+      ],
+      "typeVersion": 1,
+      "id": "e02eb4df-12f7-4ae9-a953-9eabb0ffc889",
+      "name": "Sticky Note9"
+    },
+    {
+      "parameters": {
+        "resource": "label"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        784,
+        704
+      ],
+      "id": "df94d86d-f1e7-4bbf-ac75-b14f13616b9b",
+      "name": "Get Updated Labels",
+      "webhookId": "0ffcbdcc-cc29-4cb7-9c35-8fd156690374",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1️⃣ Grab both inputs by index\n//    – Input 0: Determine Action\n//    – Input 1: Get Existing Labels\n//const actionItems        = $input.all(0);\n//const existingLabelItems = $input.all(1);\n\nconst allItems = $input.all();\n\nconst actionItems = allItems.filter(i => i.sourceNode === 'Determine Action');\nconst existingLabelItems = allItems.filter(i => i.sourceNode === 'Get Updated Labels');\n\n// 2️⃣ Build a Set of existing label names (case-insensitive)\nconst existingLabels = new Set(\n  existingLabelItems\n    .map(item => item.json.name)\n    .filter(Boolean)\n    .map(name => name.toLowerCase())\n);\n\n// 3️⃣ Collect the new labels you need to create\nconst labelsToCreate = new Set();\n\nfor (const item of actionItems) {\n  const { action, newLabel } = item.json;\n  if (action === 'file' && newLabel) {\n    const nl = newLabel.toLowerCase();\n    if (!existingLabels.has(nl)) {\n      labelsToCreate.add(newLabel);  // preserve original casing\n    }\n  }\n}\n\n// 4️⃣ Return one item per unique labelToCreate\nreturn Array.from(labelsToCreate).map(label => ({\n  json: { labelToCreate: label }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        960
+      ],
+      "id": "c83e1c86-596e-4e07-892c-d130595e5955",
+      "name": "Get Emails to Update"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  // Grab the raw string the AI produced\n  let raw = item.json.output;\n  if (typeof raw !== \"string\") {\n    throw new Error(\"Expected output to be a string\");\n  }\n\n  // Remove markdown fences\n  raw = raw\n    .replace(/```json\\s*/g, \"\")   // strip the opening ```json\n    .replace(/```/g, \"\")          // strip any remaining ```\n    .trim();\n\n  let parsed;\n  try {\n    parsed = JSON.parse(raw);\n  } catch (e) {\n    throw new Error(\"Failed to parse AI JSON: \" + e.message + \"\\nRaw was:\\n\" + raw);\n  }\n\n  return { json: parsed };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        -32
+      ],
+      "id": "8e6abb10-0e53-44d0-ad89-0a243c1c04ad",
+      "name": "Parse to JSON"
+    },
+    {
+      "parameters": {
+        "jsCode": "// we don’t care about the input JSON here,\n// we just want exactly one output once Create Label is done\nreturn [{ json: {} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        704
+      ],
+      "id": "ff6bb9fe-a425-4395-8c14-199af3e4e1f7",
+      "name": "Remove Inputs"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get Email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Existing Labels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Email": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse to JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Summary": {
+      "main": [
+        [
+          {
+            "node": "Send Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Existing Labels": {
+      "main": [
+        [
+          {
+            "node": "Get New Labels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Action": {
+      "main": [
+        [
+          {
+            "node": "List Emails With INBOX Label",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Select Emails To Change To Read",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Select Emails For Deletion",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get New Labels",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Emails to Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get New Labels": {
+      "main": [
+        [
+          {
+            "node": "Create a label",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add label to message": {
+      "main": [
+        []
+      ]
+    },
+    "List Emails With INBOX Label": {
+      "main": [
+        [
+          {
+            "node": "Remove INBOX label from message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Emails To Change To Read": {
+      "main": [
+        [
+          {
+            "node": "Mark a message as read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Emails For Deletion": {
+      "main": [
+        [
+          {
+            "node": "Add TRASH label to message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove INBOX label from message": {
+      "main": [
+        []
+      ]
+    },
+    "Mark a message as read": {
+      "main": [
+        []
+      ]
+    },
+    "Add TRASH label to message": {
+      "main": [
+        []
+      ]
+    },
+    "Create a label": {
+      "main": [
+        [
+          {
+            "node": "Remove Inputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Updated Labels": {
+      "main": [
+        [
+          {
+            "node": "Get Emails to Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Emails to Update": {
+      "main": [
+        [
+          {
+            "node": "Add label to message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse to JSON": {
+      "main": [
+        [
+          {
+            "node": "Create Summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Determine Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Inputs": {
+      "main": [
+        [
+          {
+            "node": "Get Updated Labels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "3d5514b4-4945-49ff-a18c-8477ffe6ac78",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "108aed25adf76f703dad4a12325fc1881dfca5d5d697443f472fe2327ecd02d6"
+  },
+  "id": "5kYpxG1EXQD5sTPc",
+  "tags": []
+}
