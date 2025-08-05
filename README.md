@@ -44,12 +44,13 @@ This n8n workflow automates the management of your Gmail inbox by:
    * Under **Credentials**, set up a new **OAuth2** credential for Gmail.
    * Enter **Client ID**, **Client Secret**, and Redirect URI `http://localhost:5678/rest/oauth2-credential/callback`.
    * Test & save.
+   * Note - you need Gmail and OpenAI credentials
 
-4. **Enable Environment Variables** (in Docker or local `.env`):
+4. **Alternative to Step 2 (what I did):
 
-   ```ini
-   GMAIL_CLIENT_ID=<your-client-id>
-   GMAIL_CLIENT_SECRET=<your-client-secret>
+   * Download free version of Docker Desktop
+   * Search for n8n in the search bar and install latest image
+   * Then you can import the JSON file as described in step 2
    ```
 
 ---
